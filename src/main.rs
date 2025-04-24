@@ -1,7 +1,15 @@
 mod metrics;
-use metrics::UsageMetrics;
+use sysinfo::System;
+mod shared { pub mod error; }
 
 fn main() {
-    let metrics: UsageMetrics = metrics::get_usage_metrics();
-    println!("Usage Metrics: {:?}", metrics);
+
+    let mut global_sys: System = System::new_all();
+    global_sys.refresh_all();
+
+    match metrics::get_usage_metrics(&mut global_sys){
+        Ok(metrics) => println!("Usage Metrics: {:?}", metrics),
+        Err(e) => println!("Error fetching metrics: {:?}", e),
+    }
+
 }

@@ -1,7 +1,10 @@
 use std::fmt::Debug;
+use std::result::Result;
+use sysinfo::{MemoryRefreshKind, System};
 
-use sysinfo::System;
+use crate::shared::error::FetchError;
 
+#[derive(Debug)]
 pub struct UsageMetrics {
     cpu_usage: f32,
     cpus_usage: Vec<f32>,
@@ -9,28 +12,62 @@ pub struct UsageMetrics {
     swap_usage: u64,
 }
 
-impl Debug for UsageMetrics{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("UsageMetrics")
-        .field("cpu_usage", &self.cpu_usage)
-            .field("cpus_usage", &self.cpus_usage)
-            .field("memory_usage", &self.memory_usage)
-            .field("swap_usage", &self.swap_usage)
-            .finish()
+/// Fetches the CPU usage of the system.
+/// Returns a Result containing the CPU usage as a f32.
+/// If the CPU usage is invalid (less than 0.0 or greater than 100.0), it returns a FetchError.
+fn fetch_global_cpu(sys: &mut System) -> Result<f32, FetchError> {
+    sys.refresh_cpu_usage();
+    let cpu_usage = sys.global_cpu_usage();
+    if cpu_usage < 0.0 || cpu_usage > 100.0 {
+        return Err(FetchError::InvalidValue);
     }
+    Ok(cpu_usage)
 }
 
-pub fn get_usage_metrics() -> UsageMetrics {
-    let mut sys: System = System::new_all();
-    sys.refresh_all();
-    let mut metrics = UsageMetrics {
-        cpu_usage: sys.global_cpu_usage(),
-        cpus_usage: Vec::<f32>::new(),
-        memory_usage: sys.used_memory(),
-        swap_usage: sys.used_swap(),
-    };
+fn fetch_cpus_usage(sys: &mut System) -> Result<Vec<f32>, FetchError> {
+    sys.refresh_cpu_usage();
+    let mut cpus = Vec::<f32>::new();
     for cpu in sys.cpus() {
-        metrics.cpus_usage.push(cpu.cpu_usage());
+        let usage = cpu.cpu_usage();
+        if usage < 0.0 || usage > 100.0 {
+            return Err(FetchError::InvalidValue);
+        }
+        cpus.push(usage);
     }
-    return metrics
+    Ok(cpus)
+}
+
+fn fetch_memory_usage(sys: &mut System) -> Result<u64, FetchError>{
+    sys.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
+    let usage = sys.used_memory();
+    if usage > sys.total_memory(){
+        return Err(FetchError::InvalidValue);
+    }
+    Ok(usage)
+}
+
+fn fetch_swap_usage(sys: &mut System) -> Result<u64, FetchError>{
+    sys.refresh_memory_specifics(MemoryRefreshKind::nothing().with_swap());
+    let usage = sys.used_swap();
+    if usage > sys.total_swap(){
+        return Err(FetchError::InvalidValue);
+    }
+    Ok(usage)
+}
+
+
+
+pub fn get_usage_metrics(sys: &mut System) -> Result<UsageMetrics, FetchError> {
+    let cpu_usage = fetch_global_cpu(sys)?;
+    let cpus_usage = fetch_cpus_usage(sys)?;
+    let memory_usage = fetch_memory_usage(sys)?;
+    let swap_usage = fetch_swap_usage(sys)?;
+    let metrics = UsageMetrics {
+        cpu_usage: cpu_usage,
+        cpus_usage: cpus_usage,
+        memory_usage: memory_usage,
+        swap_usage: swap_usage,
+    };
+
+    return Ok(metrics)
 }
